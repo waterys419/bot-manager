@@ -1,0 +1,27 @@
+{
+  "pvsneslib_archive": {
+    "url": "https://github.com/alekmaul/pvsneslib/releases/download/4.7.0/pvsneslib_470_64b_linux_release.zip",
+    "sha256": "38cf14a60e6102e70fa2d2285d52c629ed2a6a9796e935b58859bfedbae88277"
+  },
+  "emulatorjs": {
+    "version": "4.2.3",
+    "url": "https://registry.npmjs.org/@emulatorjs/emulatorjs/-/emulatorjs-4.2.3.tgz",
+    "sha256": "8033a18a3398cae5efd7a4c12a633b10672435977290959633d671365b589639"
+  },
+  "web_snes9x": {
+    "url": "https://registry.npmjs.org/@emulatorjs/core-snes9x/-/core-snes9x-4.2.3.tgz",
+    "sha256": "0b8481c27fb929693e3c8fa3aa8773c173fa9e220c5a5b84bec234cf451a765b"
+  },
+  "test_cores": [
+    {
+      "name": "snes9x",
+      "url": "https://buildbot.libretro.com/nightly/linux/x86_64/latest/snes9x_libretro.so.zip",
+      "binary_sha256": "9b2b6ea9d88f96c156590443ddd05ee56aaf4e495329a889c979921942717a31"
+    },
+    {
+      "name": "bsnes_mercury_accuracy",
+      "url": "https://buildbot.libretro.com/nightly/linux/x86_64/latest/bsnes_mercury_accuracy_libretro.so.zip",
+      "binary_sha256": "68778a54c2d3fad947c8dd97e3ad3e4605d4aaca7bee3f2f469948a6508d1aec"
+    }
+  ]
+}
