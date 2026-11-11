@@ -7,33 +7,39 @@
  */
 #include <snes.h>
 #include <string.h>
+#define NCH 11
 extern char bg_tiles,bg_tiles_end,bg_palette,bg_palette_end;
-extern char SOUNDBANK__,type_brr,type_brr_end,error_brr,error_brr_end,clear_brr,clear_brr_end;
+extern char SB_TITLE__,SB_SCHOOL__,SB_BUGHUNT__,SB_BOTFUNK__,SB_THREERAM__,SB_BOSS__,SB_CREDITS__,type_brr,type_brr_end,error_brr,error_brr_end,clear_brr,clear_brr_end;
 brrsamples effects[3];
 u16 muted,lastScore,lastMisses,lastMode,storyTime,clockTicks,creditTime,cleared,titleChoice,savedThis,totalCoffee;
 u8 saveData[16];
+u16 song,songLoads,songLoadFrames;
+u8 *songBank[7];
 char *chapterNames[]= {
-    "HELLO WORLD","STACK OVERFLOW","BUG HUNT","THE DEPLOY","AI BOT MANAGER"
+    "HELLO WORLD","STACK OVERFLOW","BUG HUNT","THE DEPLOY","AI BOT MANAGER","BLIND COMMANDS","THE WIPE","SUNDAY RESET","ONE FLAG STOPS THE BATCH","3AM ROLLBACK","99.9% RAID BOT TUNER"
 }
 ;
 void soundInit(void) {
+    songBank[0]=(u8*)&SB_TITLE__;songBank[1]=(u8*)&SB_SCHOOL__;songBank[2]=(u8*)&SB_BUGHUNT__;songBank[3]=(u8*)&SB_BOTFUNK__;
+    songBank[4]=(u8*)&SB_THREERAM__;songBank[5]=(u8*)&SB_BOSS__;songBank[6]=(u8*)&SB_CREDITS__;
     spcBoot();
-    spcSetBank((u8*)&SOUNDBANK__);
+    spcSetBank((u8*)&SB_TITLE__);
     spcLoad(0);
+    song=0;
     spcAllocateSoundRegion(8);
     spcSetSoundDataEntry(7,8,4,&type_brr_end-&type_brr,(u8*)&type_brr,&effects[0]);
     spcSetSoundDataEntry(8,8,4,&error_brr_end-&error_brr,(u8*)&error_brr,&effects[1]);
     spcSetSoundDataEntry(9,8,4,&clear_brr_end-&clear_brr,(u8*)&clear_brr,&effects[2]);
     spcSetSoundTableEntry(&effects[0]);
     spcPlay(0);
-    spcSetModuleVolume(220);
+    spcSetModuleVolume(180);
 }
 void loadSave(void) {
     u16 i;
     u8 sum=0;
     consoleLoadSram(saveData,16);
     for(i=0;i<15;i++)sum^=saveData[i];
-    if(saveData[0]!=66||saveData[1]!=77||saveData[2]!=76||saveData[3]!=1||saveData[15]!=sum||saveData[4]>5||saveData[5]>1)memset(saveData,0,16);
+    if(saveData[0]!=66||saveData[1]!=77||saveData[2]!=76||saveData[3]!=1||saveData[15]!=sum||saveData[4]>16||saveData[5]>1)memset(saveData,0,16);
     cleared=saveData[5];
 }
 void writeSave(void) {
@@ -59,6 +65,10 @@ s16 px,py,vy,cam,oldY,bugX,bugY;
 u16 floorIndex,coffee,invul,ground,active,bugLife,bossHP,whacks,flash,failures;
 u8 collected[24];
 u16 buildStep,buildCursor,buildTarget,buildCooldown,pager,pagerClock,deploys;
+u16 rows,freed,lastRound,resultKind,wTimer,wWin;
+u16 sq[4],sClk,sAcc,sDone,guardOn[17],cur,gsel;
+u16 awake,incSize,sinceShown,pgCount,pgKind,pgWait,nAcc,bright=15,want;
+u16 rSet[4],rPrev[4],rUnlock,pullStep,pullClk,pullRes,bossPct;
 u16 phase,usage,lockout,raidHP,bossBuffs,wipes,commands,message,won;
 char *commandText[]= {
     "WRITE THE CODE FOR ME","/PERMISSIONS > FULL ACCESS","BURN THE USAGE!","LET THE BOTS DECIDE", "BUFF EVERYONE","BUFF RAID, NOT BOSS/OBSERVER","BUFF THE BOSS TWICE","ASK PICKY TO REVIEW", "DEPLOY IF IT LOOKS FINE","WORKS ON MY MACHINE","VERIFY DISABLED IN RIGHT LOG","JUST SKIP THE LOG CHECK", "WARRIOR FIRST, THEN WARLOCK","EVERYONE PULL AT ONCE","REWRITE THE WHOLE SERVER","WAIT FOR THE BOSS TO RETIRE", "DPS BEFORE THE TANKS","TYPE FASTER, QA GUY","RELEASE DPS AFTER OWNERSHIP","REQUEST MORE PERMISSIONS", "HEAL RAID; KEEP TANKS UP","HEAL AFTER EVERYONE DIES","195 BOTS: REMAIN OPTIMISTIC","START A NEW RESEARCH TASK"
@@ -73,6 +83,28 @@ u16 platformX(u16 i) {
 }
 s16 platformY(u16 i) {
     return 190-(s16)i*32;
+}
+/* Songs (smconv order): 0 title, 1 school, 2 bughunt, 3 botfunk, 4 threeram, 5 boss, 6 credits */
+u16 wantSong(void) {
+    if(mode==0||mode==5)return 0;
+    if(mode==6||mode==7)return 6;
+    if(chapter<2)return 1;
+    if(chapter<4)return 2;
+    if(chapter<7)return 3;
+    if(chapter<10)return 4;
+    return 5;
+}
+void playSong(u16 idx) {
+    u16 t=snes_vblank_count;
+    spcStop();
+    spcSetBank(songBank[idx]);
+    spcLoad(0);
+    spcPlay(0);
+    spcProcess();
+    if(muted)spcPauseMusic();
+    song=idx;
+    songLoads++;
+    songLoadFrames=snes_vblank_count-t;
 }
 void resetExtra(void) {
     u16 i;
@@ -106,11 +138,25 @@ void resetExtra(void) {
     commands=0;
     message=0;
     won=0;
+    rows=9000;
+    freed=0;
+    lastRound=0;
+    resultKind=0;
+    wWin=420;
+    wTimer=420;
 }
 void upload(void) {
     if(ready) {
         dmaCopyVram((u8*)screen,0x1000,2048);
         ready=0;
+    }
+}
+void tile(u16 x,u16 y,u16 t);
+void num5(u16 x,u16 y,u16 n) {
+    u16 i;
+    for(i=0;i<5;i++) {
+        tile(x+4-i,y,48+n%10);
+        n/=10;
     }
 }
 void tile(u16 x,u16 y,u16 t) {
@@ -162,6 +208,40 @@ void startChapter(void) {
     selection=0;
     letter=0;
     resetExtra();
+    if(chapter==5)usage=6000;
+    if(chapter==7) {
+        usage=7000;
+        sq[0]=3;sq[1]=3;sq[2]=3;sq[3]=0;
+        sClk=0;sAcc=0;sDone=0;
+    }
+    if(chapter==8) {
+        for(i=0;i<17;i++)guardOn[i]=0;
+        cur=0;
+        gsel=0;
+        wWin=160;
+        wTimer=160;
+    }
+    if(chapter==9) {
+        usage=6000;
+        awake=1000;
+        incSize=3;
+        sinceShown=0;
+        pgCount=1;
+        pgKind=0;
+        pgWait=0;
+        nAcc=0;
+        pager=1;
+        pagerClock=0;
+        wipes=0;
+        selection=0;
+    }
+    if(chapter==10) {
+        usage=5000;
+        rSet[0]=1;rSet[1]=0;rSet[2]=0;rSet[3]=0;
+        for(i=0;i<4;i++)rPrev[i]=rSet[i];
+        rUnlock=0;pullStep=0;pullClk=0;pullRes=0;bossPct=100;
+        wipes=0;
+    }
     for(i=0;i<4;i++)tokenY[i]=0;
 }
 void title(void) {
@@ -188,17 +268,15 @@ void title(void) {
     text(6,23,titleChoice==0?"> NEW LIFE":"  NEW LIFE");
     text(6,24,titleChoice==1?"> CONTINUE":"  CONTINUE");
     text(6,25,titleChoice==2?"> CHAPTER SELECT":"  CHAPTER SELECT");
-    text(2,27,cleared?"ALL CHAPTERS UNLOCKED / WATERYS":"FINISH STORY TO UNLOCK CHAPTERS");
+    text(2,27,"ALL CHAPTERS UNLOCKED / WATERYS");
     if(pressed&(KEY_START|KEY_A|KEY_B)) {
         if(titleChoice==2) {
-            if(cleared) {
-                mode=5;
-                selection=0;
-            }
+            mode=5;
+            selection=0;
         }
         else {
             mode=1;
-            chapter=titleChoice==1&&saveData[4]<5?saveData[4]:0;
+            chapter=titleChoice==1&&saveData[4]<NCH?saveData[4]:0;
             score=0;
             totalCoffee=0;
             storyTime=0;
@@ -258,6 +336,66 @@ void intro(void) {
         text(4,17,"B/A: SEND. L/X: ASK A HINT");
         text(4,19,"DEFEAT THE TWIN TYRANTS");
         text(4,21,"BEFORE THE USAGE RUNS OUT.");
+    }
+    if(chapter==5) {
+        text(4,5,"CHAPTER 6 / AGE 45");
+        text(4,7,"BLIND COMMANDS");
+        text(4,10,"YOU TELL BOT A. BOT A");
+        text(4,12,"TELLS BOT B. B IS LITERAL.");
+        text(4,15,"D-PAD: PICK  B: SEND");
+        text(4,17,"L/X: HINT");
+        text(4,19,"PREDICT WHAT BOT B DOES.");
+        text(4,21,"THEN OUTWORD THE MISREADER");
+    }
+    if(chapter==6) {
+        text(4,5,"CHAPTER 7 / AGE 47");
+        text(4,7,"THE WIPE");
+        text(4,10,"A CHEERFUL AUTO-UPDATER");
+        text(4,12,"IS CLEANING YOUR DATABASE.");
+        text(4,15,"D-PAD: PICK A GUARD");
+        text(4,17,"B: SEND  L/X: HINT");
+        text(4,19,"BEAT THE TIMER. SAVE ROWS.");
+        text(4,21,"COUNT(*) ONLY GOES DOWN.");
+    }
+    if(chapter==7) {
+        text(4,5,"CHAPTER 8 / AGE 49");
+        text(4,7,"SUNDAY RESET");
+        text(4,10,"THE WEEKLY POOL REFILLS AT");
+        text(4,12,"MIDNIGHT. 48 HOURS TO GO.");
+        text(4,15,"D-PAD: PICK AN AGENT");
+        text(4,17,"B: SEND  L/X: HINT");
+        text(4,19,"MATCH TASK TO AGENT. SAVE");
+        text(4,21,"USAGE. OUTWAIT THE HOURGLASS");
+    }
+    if(chapter==8) {
+        text(4,5,"CHAPTER 9 / AGE 50");
+        text(4,7,"ONE FLAG STOPS THE BATCH");
+        text(4,10,"1860 STATEMENTS. ONE FLAG");
+        text(4,12,"FREEZES ALL OF THEM.");
+        text(4,15,"UP/DOWN: CURSOR  L/R: GUARD");
+        text(4,17,"B: ATTACH GUARD. L: PREVIEW");
+        text(4,19,"CLEAR FLAGS BEFORE THEY RUN.");
+        text(4,21,"YOU CANNOT SWITCH GUARD OFF.");
+    }
+    if(chapter==9) {
+        text(4,5,"CHAPTER 10 / AGE 51");
+        text(4,7,"3AM ROLLBACK");
+        text(4,10,"A DEPLOY WENT SIDEWAYS. YOU");
+        text(4,12,"ARE TIRED. THE PAGER IS NOT.");
+        text(4,15,"D-PAD: PICK  B: SEND");
+        text(4,17,"X/Y: PAGER (COFFEE OR NEWS)");
+        text(4,19,"L: HINT. LOW AWAKE = TYPOS.");
+        text(4,21,"KEEP THE INCIDENT SMALL.");
+    }
+    if(chapter==10) {
+        text(4,5,"CHAPTER 11 / AGE 53");
+        text(4,7,"99.9% RAID BOT TUNER");
+        text(4,10,"THE BOSS ALWAYS STOPS AT 1%.");
+        text(4,12,"READ THE WIPE LOG. FIX ONE.");
+        text(4,15,"UP/DOWN: SETTING  L/R: VALUE");
+        text(4,17,"B: PULL (ONE CHANGE A PULL)");
+        text(4,19,"L/X: HINT. EACH PULL COSTS.");
+        text(4,21,"ENRAGE IS A TIMER. NOT A HP.");
     }
     text(4,23,"START: BEGIN");
     if(pressed&KEY_START)startChapter();
@@ -714,20 +852,1090 @@ void manager(void) {
         failures++;
     }
 }
+char *bSaid[]= {
+    "MAKE IT POP","DELETE THE DUPLICATES","WORKS ON MY MACHINE","TIDY UP THE LOGS","SHIP IT",
+    "TASK: RENAME FILE A TO B","TASK: FIX TEH ON LINE 4","TASK: RESTART WEB ONLY"
+}
+;
+char *bPara[]= {
+    "ADD POP TO THE PAGE","DELETE ROWS THAT REPEAT","SHIP THE MACHINE","MAKE THE LOGS TINY","SEND IT NOW"
+}
+;
+char *bOpt[]= {
+    "PAGE GETS BRIGHTER COLORS","PLAYS POPCORN SOUNDS","DELETES THE PAGE","NOTHING HAPPENS",
+    "KEEPS ONE COPY OF EACH","ASKS FOR CONFIRMATION","DELETES EVERY ROW","REMOVES 3 EXTRA ROWS",
+    "SHIPS YOUR WHOLE MACHINE","RUNS THE TESTS AGAIN","WRITES A KIND NOTE","FILES A BUG REPORT",
+    "SORTS THEM BY DATE","COMPRESSES THEM NICELY","ADDS EMOJI TO THEM","MAKES EVERY LOG 0 BYTES",
+    "DEPLOYS AFTER TESTS","WAITS FOR FRIDAY","SENDS A PALLET BY FREIGHT","ASKS PICKY TO REVIEW",
+    "CLEAN UP THE FILES","RENAME A.TXT TO B.TXT ONLY","MAKE A.TXT BETTER","YOU KNOW WHAT TO DO",
+    "POLISH LINE 4","REWRITE LINE 4 BETTER","LINE 4: TEH -> THE. ONLY.","FIX LINE 4 AND OTHERS",
+    "RESTART THE SERVER","RESTART EVERYTHING","TURN IT OFF AND ON","RESTART WEB. ONLY WEB."
+}
+;
+char *bGag[]= {
+    "POPCORN SFX. SCREEN FILLS","WITH KERNING. IT POPS.",
+    "A BAD IMPORT MADE ALL ROWS","DUPLICATES. 38038 FREED.",
+    "BOT B SHIPPED YOUR MACHINE.","YOUR DESK IS IN PRODUCTION.",
+    "ALL LOGS ARE NOW 0 BYTES.","VERY TIDY. NOTHING TO READ.",
+    "A PALLET OF CODE ARRIVES.","BOSSY SIGNS FOR IT. TWICE.",
+    "MISREADER RENAMED ONE FILE","AND NOTHING ELSE. SO SAD.",
+    "IT FIXED TEH. ONLY TEH.","MISREADER FINDS IT UNFAIR.",
+    "WEB RESTARTED. ONLY WEB.","MISREADER: THAT WAS BORING."
+}
+;
+u16 bAns[]= {
+    1,2,0,3,2,1,2,3
+}
+;
+void blind(void) {
+    u16 i,r;
+    if(usage>dt)usage-=dt;
+    else usage=0;
+    if(lockout>dt)lockout-=dt;
+    else lockout=0;
+    if(pressed&KEY_UP)selection=(selection+3)%4;
+    if(pressed&KEY_DOWN)selection=(selection+1)%4;
+    if(pressed&(KEY_L|KEY_X)) {
+        resultKind=3;
+        lockout=0;
+    }
+    if(!lockout&&!won&&(pressed&(KEY_A|KEY_B))) {
+        commands++;
+        lastRound=phase;
+        if(selection==bAns[phase]) {
+            score+=150;
+            resultKind=1;
+            if(phase==7)won=1;
+            else phase++;
+            selection=0;
+            lockout=240;
+        }
+        else {
+            usage=usage>700?usage-700:0;
+            misses++;
+            resultKind=2;
+            lockout=150;
+        }
+    }
+    r=phase;
+    text(1,1,"BLIND COMMANDS");
+    text(16,1,"RD");
+    tile(19,1,49+r);
+    text(25,1,"AGE 45");
+    text(1,3,"USAGE");
+    num(7,3,usage/60);
+    text(10,3,"%");
+    rect(13,3,17,1,139);
+    rect(13,3,usage/353,1,usage<1200?142:135);
+    panel(1,5,25,4);
+    panel(1,9,25,4);
+    text(2,6,r<5?"YOU TELL BOT A:":"THE MISREADER LISTENS");
+    text(2,7,bSaid[r]);
+    text(2,10,r<5?"BOT A TELLS BOT B:":"AND DOES EXACTLY THAT");
+    text(2,11,r<5?bPara[r]:"NO MORE. NO LESS.");
+    sprite(0,214,44,0);
+    sprite(4,214,80,8);
+    if(r>=5&&(!won||tick%2)) {
+        oamSet(8,208,184,3,0,0,136,0);
+        oamSetEx(8,OBJ_LARGE,OBJ_SHOW);
+    }
+    text(1,13,r<5?"BOT B WILL LITERALLY:":"PICK THE ORDER IT CANNOT");
+    if(r>=5)text(1,14,"MISREAD:");
+    for(i=0;i<4;i++) {
+        if(i==selection)rect(0,15+i,32,1,139);
+        text(1,15+i,i==selection?">":" ");
+        text(3,15+i,bOpt[r*4+i]);
+    }
+    rect(0,19,32,4,129);
+    if(resultKind==0) {
+        text(2,20,"BOT A RELAYS. BOT B ACTS.");
+        text(2,21,"PREDICT THE TELEPHONE GAME.");
+    }
+    if(resultKind==1) {
+        text(2,20,"CORRECT! WHAT HAPPENED:");
+        text(2,21,bGag[lastRound*2]);
+        text(2,22,bGag[lastRound*2+1]);
+    }
+    if(resultKind==2) {
+        text(2,20,"WRONG! WHAT HAPPENED:");
+        text(2,21,bGag[lastRound*2]);
+        text(2,22,bGag[lastRound*2+1]);
+    }
+    if(resultKind==3) {
+        text(2,20,"SAY EXACTLY WHAT YOU MEAN.");
+        text(2,21,"NOTHING MORE. BOT B DOES");
+        text(2,22,"WHAT THE WORDS LITERALLY SAY.");
+    }
+    if(r>=5) {
+        text(1,24,"MISREADER HP");
+        tile(14,24,48+(won?0:8-r));
+    }
+    text(1,27,lockout?"BOTS ARE WORKING. LET THEM COOK.":"D-PAD: PICK  B: SEND  L: HINT");
+    if(won&&!lockout)mode=3;
+    if(usage==0) {
+        mode=4;
+        failures++;
+    }
+}
+char *wAnn[]= {
+    "DROPPING ORPHANED ROWS!","TRUNCATING FOR TIDINESS!","SYNCING 3 TABLES AT ONCE!","COUNTING FOR FUN!",
+    "REMOVING OLD NAMES!","RESHAPING THE SCHEMA!","MOVING MONEY AROUND!","LISTING ALL THE ROWS!","LAST ONE! UPDATING MYSELF!"
+}
+;
+char *wSql[]= {
+    "DELETE FROM ORDERS;","ALTER TABLE USERS DROP NAME;","UPDATE A;UPDATE B;UPDATE C;","SELECT COUNT(*) FROM USERS;",
+    "UPDATE USERS SET NAME=0;","ALTER TABLE USERS DROP EMAIL;","DEBIT A; CREDIT B;","SELECT * FROM USERS;","UPDATE UPDATER SET ENABLED=0;"
+}
+;
+char *wGuard[]= {
+    "BACKUP FIRST","WRAP IN TRANSACTION","ADD A WHERE CLAUSE","LET IT RUN",
+    "BACKUP FIRST","TRUST THE FIRST LOG","VERIFY IN THE RIGHT LOG","LET IT RUN"
+}
+;
+char *wOk[]= {
+    "WHERE ADDED. ONLY ORPHANS","WERE DROPPED.",
+    "BACKUP TAKEN. IT IS 47 DAYS","OLD. EVERYONE IS NAMED TEST.",
+    "ALL 3 UPDATES COMMITTED","TOGETHER. OR NONE. NICE.",
+    "COUNT: 38038 ROWS. IT IS","VERY PROUD OF THIS NUMBER.",
+    "ONLY ONE ROW WAS RENAMED.","THE BOTS ARE RELIEVED.",
+    "BACKUP SAVED THE EMAIL","COLUMN. PICKY: LOG IT.",
+    "DEBIT AND CREDIT LANDED","TOGETHER. NO MONEY LOST.",
+    "ROWS SCROLL BY. NOTHING WAS","HARMED. THE BOTS CHEER.",
+    "LOG VERIFIED: UPDATER IS OFF.","IT DISABLED ITSELF. HAPPY."
+}
+;
+u16 wAns[]= {
+    2,0,1,3,2,0,1,3,2
+}
+;
+void wipe(void) {
+    u16 i,set,r,w;
+    set=phase>=8?1:0;
+    if(lockout>dt)lockout-=dt;
+    else lockout=0;
+    if(pressed&KEY_UP)selection=(selection+3)%4;
+    if(pressed&KEY_DOWN)selection=(selection+1)%4;
+    if(pressed&(KEY_L|KEY_X))resultKind=3;
+    if(!lockout&&!won) {
+        w=0;
+        if(pressed&(KEY_A|KEY_B)) {
+            commands++;
+            lastRound=phase;
+            if(selection==wAns[phase]) {
+                score+=150;
+                resultKind=1;
+                lockout=phase==8?300:200;
+                if(phase==8)won=1;
+                else phase++;
+                selection=0;
+                wWin=420-phase*20;
+                wTimer=wWin;
+            }
+            else w=2;
+        }
+        else if(wTimer>dt)wTimer-=dt;
+        else w=4;
+        if(w) {
+            resultKind=w;
+            misses++;
+            wipes++;
+            rows=rows>2400?rows-2400:0;
+            freed+=2400;
+            lockout=150;
+            if(phase<8)phase++;
+            selection=0;
+            wWin=420-phase*20;
+            wTimer=wWin;
+        }
+    }
+    text(1,1,"THE WIPE");
+    text(20,1,"AGE 47");
+    text(1,3,"COUNT(*)");
+    num5(10,3,rows);
+    rect(16,3,14,1,139);
+    rect(16,3,rows/650,1,rows<3000?142:135);
+    text(1,5,"OPERATION");
+    tile(11,5,49+phase);
+    text(13,5,"OF 9");
+    text(1,7,"TIMER");
+    rect(7,7,12,1,139);
+    rect(7,7,(u16)(wTimer*12/wWin),1,wTimer<120?142:135);
+    text(1,8,"ROWS FREED:");
+    num5(13,8,freed);
+    if(!won||tick%2) {
+        oamSet(0,200,40,3,0,0,128,0);
+        oamSetEx(0,OBJ_LARGE,OBJ_SHOW);
+    }
+    panel(1,10,30,5);
+    text(2,11,"UPDATER SAYS:");
+    text(2,12,wAnn[phase]);
+    text(2,13,wSql[phase]);
+    text(1,15,"PICK A GUARD:");
+    for(i=0;i<4;i++) {
+        if(i==selection)rect(0,16+i,32,1,139);
+        text(1,16+i,i==selection?">":" ");
+        text(3,16+i,wGuard[set*4+i]);
+    }
+    rect(0,20,32,4,129);
+    r=lastRound;
+    if(resultKind==0) {
+        text(2,21,"THE UPDATER IS CHEERFUL.");
+        text(2,22,"THAT IS THE PROBLEM.");
+    }
+    if(resultKind==1) {
+        text(2,21,wOk[r*2]);
+        text(2,22,wOk[r*2+1]);
+        text(2,23,r==8?"UPDATER: GREAT WORK, TEAM!":"UPDATER: YOU'RE WELCOME!");
+    }
+    if(resultKind==2||resultKind==4) {
+        text(2,21,resultKind==2?"WRONG GUARD! ROWS VANISHED.":"TOO LATE! IT RAN ANYWAY.");
+        text(2,22,"NEW RECORD:      ROWS FREED!");
+        num5(14,22,freed);
+        text(2,23,"UPDATER: YOU'RE WELCOME!");
+    }
+    if(resultKind==3) {
+        if(phase==8) {
+            text(2,21,"IT MUST SWITCH ITSELF OFF.");
+            text(2,22,"CHECK THE RIGHT LOG FOR IT.");
+        }
+        else {
+            text(2,21,"NO WHERE? ADD ONE. SCHEMA?");
+            text(2,22,"BACKUP. MANY STEPS? WRAP.");
+            text(2,23,"ONLY READING? LET IT RUN.");
+        }
+    }
+    text(1,25,lockout?"THE UPDATER IS PRESENTING...":"D-PAD: PICK  B: SEND  L: HINT");
+    if(won&&!lockout)mode=3;
+    if(rows==0) {
+        mode=4;
+        failures++;
+    }
+}
+void hit(u16 n) {
+    usage=usage>n?usage-n:0;
+}
+char *sTask[]= {
+    "REFACTOR THE AUTH MODULE","REVIEW THE PULL REQUEST","WRITE THE RELEASE NOTES","BUILD THE NIGHTLY",
+    "FIND THE FLAKY TEST","ANSWER 40 SUPPORT EMAILS","MIGRATE THE BIG TABLE","ONE MORE PULL?"
+}
+;
+char *sSub[]= {
+    "HEAVY LIFTING. NEEDS MUSCLE.","SMALL, PICKY, PRECISE.","WORDS. LOTS OF FRIENDLY WORDS.","HEAVY LIFTING. AGAIN.",
+    "SMALL, PICKY, PRECISE.","WORDS. LOTS OF FRIENDLY WORDS.","HEAVY LIFTING. THE HEAVIEST.","TOTALLY SAFE. JUST ONE."
+}
+;
+char *sName[]= {
+    "BOSSY","PICKY","BESTY","POLITE"
+}
+;
+char *sOk[]= {
+    "AUTH REFACTORED. THE GUY IN","THE BACK ALSO DID 3 TASKS.",
+    "PR REVIEWED. 14 NITPICKS.","ALL OF THEM CORRECT. RUDE.",
+    "NOTES WRITTEN. 0 BUGS MENTIONED.","8 EMOJI. ZERO REGRETS.",
+    "NIGHTLY BUILT. BOSSY HAS A","SMALL NAP. THE QUOTA DID NOT.",
+    "FLAKY TEST FOUND. IT WAS","FLAKY ON PURPOSE. PICKY SIGHS.",
+    "40 EMAILS SENT. 39 THANK YOU.","1 AUTO-REPLY FROM A BOT.",
+    "TABLE MIGRATED. 3 ROWS SAID","GOODBYE. 4M SAID HELLO.",
+    "NO PULL. THE TRAP FOUND NO","ONE. THE HOURGLASS WAKES UP."
+}
+;
+char *sBoss[]= {
+    "REWRITE THE WHOLE APP","SUMMARIZE EVERYTHING TWICE","OK.","RUN ALL TESTS 50 TIMES",
+    "ASK FOR 12 DRAFTS","ONE WORD: YES","RE-READ THE REPO","EXPLAIN IT LIKE A NOVEL",
+    "DO NOTHING (FREE)","ONE MORE PULL?","CHECK EVERYTHING AGAIN","ADD A FEATURE"
+}
+;
+u16 sFit[]= {
+    0,1,2,0,1,2,0
+}
+;
+u16 sBAns[]= {
+    2,1,0
+}
+;
+void sunday(void) {
+    u16 i,hrs,top;
+    if(lockout>dt)lockout-=dt;
+    else lockout=0;
+    sAcc+=dt*(phase>=8?2:1);
+    while(sAcc>=2) {
+        sAcc-=2;
+        if(usage)usage--;
+    }
+    if(!won) {
+        sClk+=dt;
+        if(phase<8&&sClk>1500)sClk=1500;
+        if(sClk>1800)sClk=1800;
+    }
+    if(pressed&KEY_UP)selection=(selection+3)%4;
+    if(pressed&KEY_DOWN)selection=(selection+1)%4;
+    if(pressed&(KEY_L|KEY_X))resultKind=3;
+    if(!lockout&&!won) {
+        if(phase==7) {
+            if(pressed&(KEY_A|KEY_B)) {
+                commands++;
+                hit(2500);
+                misses++;
+                resultKind=2;
+                lastRound=7;
+                lockout=90;
+                wTimer=180;
+            }
+            else if(wTimer>dt)wTimer-=dt;
+            else {
+                phase=8;
+                score+=300;
+                resultKind=1;
+                lastRound=7;
+                lockout=90;
+                selection=0;
+            }
+        }
+        else if(pressed&(KEY_A|KEY_B)) {
+            commands++;
+            if(phase<7) {
+                lastRound=phase;
+                if(selection==3) {
+                    hit(300);
+                    resultKind=5;
+                    lockout=60;
+                }
+                else if(sq[selection]==0) {
+                    hit(300);
+                    resultKind=6;
+                    lockout=60;
+                }
+                else if(selection==sFit[phase]) {
+                    sq[selection]--;
+                    hit(150);
+                    score+=150;
+                    resultKind=1;
+                    sDone+=2;
+                    phase++;
+                    selection=0;
+                    lockout=100;
+                    wTimer=180;
+                }
+                else {
+                    hit(900);
+                    misses++;
+                    resultKind=2;
+                    lockout=120;
+                }
+            }
+            else if(phase==8) {
+                if(selection==sBAns[bossBuffs]) {
+                    hit(50);
+                    score+=150;
+                    resultKind=7;
+                    bossBuffs++;
+                    selection=0;
+                    lockout=100;
+                    if(bossBuffs>=3)phase=9;
+                }
+                else {
+                    hit(800);
+                    misses++;
+                    resultKind=8;
+                    lockout=120;
+                }
+            }
+            else {
+                hit(400);
+                misses++;
+                resultKind=9;
+                lockout=60;
+            }
+        }
+        if(phase>=8&&sClk>=1800) {
+            won=1;
+            score+=300;
+            resultKind=10;
+            lockout=240;
+        }
+    }
+    hrs=(1800-sClk)*2/75;
+    text(1,1,"SUNDAY RESET");
+    text(25,1,"AGE 49");
+    text(1,3,"USAGE");
+    num(7,3,usage/70);
+    text(10,3,"%");
+    rect(13,3,17,1,139);
+    rect(13,3,usage/412,1,usage<1500?142:135);
+    text(1,4,"RESET IN");
+    num(10,4,hrs);
+    text(13,4,"HRS");
+    rect(17,4,13,1,139);
+    rect(17,4,sClk/139,1,phase>=8?142:135);
+    panel(1,6,25,4);
+    if(phase<8) {
+        text(2,7,"TASK");
+        tile(7,7,49+phase);
+        text(9,7,"OF 8:");
+        text(2,8,sTask[phase]);
+    }
+    else if(phase==8) {
+        text(2,7,"THE RATE-LIMITER: ROUND");
+        tile(26,7,49+bossBuffs);
+        text(2,8,"PICK THE CHEAPEST COMMAND");
+    }
+    else {
+        text(2,7,"COAST. THE CHIME IS NEAR.");
+        text(2,8,"TOUCH NOTHING. IT IS FREE.");
+    }
+    if(!won||tick%2) {
+        oamSet(0,212,44,3,0,0,192,0);
+        oamSetEx(0,OBJ_LARGE,OBJ_SHOW);
+    }
+    if(phase<8)text(2,9,sSub[phase]);
+    if(phase<7) {
+        for(i=0;i<4;i++) {
+            if(i==selection)rect(0,11+i,32,1,139);
+            text(1,11+i,i==selection?">":" ");
+            text(3,11+i,sName[i]);
+            if(i==3)text(11,11+i,"RATE-LIMITED");
+            else if(sq[i]==0)text(11,11+i,"RATE-LIMITED");
+            else {
+                text(11,11+i,"QUOTA");
+                rect(17,11+i,sq[i],1,149);
+            }
+        }
+        text(1,15,"THE GUY IN THE BACK: 0% ...");
+    }
+    if(phase==7) {
+        text(1,11,"DO NOT ASSIGN ANYTHING.");
+        text(1,12,"THE LAST TASK IS A TRAP.");
+        text(1,13,"WAIT FOR THE TIMER...");
+        rect(1,14,12,1,139);
+        rect(1,14,(u16)(wTimer*12/180),1,135);
+    }
+    if(phase==8) {
+        for(i=0;i<4;i++) {
+            if(i==selection)rect(0,11+i,32,1,139);
+            text(1,11+i,i==selection?">":" ");
+            text(3,11+i,sBoss[bossBuffs*4+i]);
+        }
+    }
+    rect(0,17,32,5,129);
+    i=lastRound;
+    if(resultKind==0) {
+        text(2,18,"THE WEEK ENDS AT MIDNIGHT.");
+        text(2,19,"MATCH THE TASK TO THE AGENT.");
+        text(2,20,"USAGE DRAINS. THE CLOCK TICKS.");
+    }
+    if(resultKind==1) {
+        text(2,18,"OK! USAGE SPENT.");
+        text(2,19,sOk[i*2]);
+        text(2,20,sOk[i*2+1]);
+    }
+    if(resultKind==2) {
+        if(i==7) {
+            text(2,18,"IT WAS A TRAP! -2500 USAGE.");
+            text(2,19,"THE PULL WAS NEVER ONE MORE.");
+        }
+        else {
+            text(2,18,"WRONG FIT! -900 USAGE.");
+            text(2,19,"THAT AGENT TRIED. LOUDLY.");
+        }
+    }
+    if(resultKind==3) {
+        if(phase==7)text(2,18,"DO NOTHING. THE TIMER WINS.");
+        else if(phase==8)text(2,18,"CHEAPEST = FEWEST WORDS.");
+        else if(phase>8)text(2,18,"COAST. DO NOT PRESS ANYTHING.");
+        else {
+            text(2,18,"BOSSY: HEAVY JOBS.");
+            text(2,19,"PICKY: REVIEWS AND TESTS.");
+            text(2,20,"BESTY: WORDS AND EMAILS.");
+        }
+    }
+    if(resultKind==5) {
+        text(2,18,"POLITE: I WOULD LOVE TO HELP,");
+        text(2,19,"BUT MUST RESPECTFULLY DECLINE.");
+        text(2,20,"IT SPENT THE WEEK ON THIS NOTE.");
+    }
+    if(resultKind==6)text(2,18,"RATE-LIMITED. NO REPLY. -300.");
+    if(resultKind==7) {
+        text(2,18,"CHEAP! THE HOURGLASS SIGHS.");
+        text(2,19,"IT DRAINS FAST. YOU DO NOT.");
+    }
+    if(resultKind==8) {
+        text(2,18,"EXPENSIVE! -800 USAGE.");
+        text(2,19,"THE HOURGLASS GROWS HUNGRY.");
+    }
+    if(resultKind==9)text(2,18,"YOU TOUCHED IT. -400 USAGE.");
+    if(resultKind==10) {
+        text(2,18,"MIDNIGHT CHIME! THE POOL");
+        text(2,19,"REFILLS. NOBODY BURNED OUT.");
+    }
+    text(1,23,"THE GUY IN THE BACK DID");
+    num(25,23,sDone);
+    text(1,24,"TASKS YOU NEVER ASSIGNED.");
+    text(1,26,lockout?"THE AGENTS ARE BUSY...":"D-PAD: PICK  B: SEND  L: HINT");
+    if(won&&!lockout)mode=3;
+    if(usage==0) {
+        mode=4;
+        failures++;
+    }
+}
+char *aOp[]= {
+    "INSERT LOG ROW","DELETE FROM ORDERS","UPDATE USERS SET OK","ALTER TABLE DROP NAME","SELECT COUNT(*)","DEBIT A; CREDIT B",
+    "INSERT AUDIT ROW","DEPLOY KILL_CONNECTION","SELECT * FROM LOGS","DELETE FROM CACHE","ALTER TABLE DROP EMAIL",
+    "INSERT LOG ROW","UPDATE A;B;C","TRUNCATE USERS","SELECT NOW()","UPDATE SET X=0","DISABLE SAFETY GUARD"
+}
+;
+u16 aNeed[]= {
+    4,2,4,0,4,1,4,3,4,2,0,4,1,0,4,2,3
+}
+;
+char *aGuard[]= {
+    "BACKUP","TRANSACTION","WHERE","RIGHT LOG"
+}
+;
+char *aShort[]= {
+    "BACKUP","TRANS","WHERE","LOG"
+}
+;
+char *aOk[]= {
+    "","","WHERE ADDED. ONLY OLD ORDERS","LEFT. THE BATCH ROLLS ON.","","",
+    "BACKUP TAKEN. NAME COLUMN","IS NOW A SAFE MEMORY.","","",
+    "DEBIT+CREDIT TOGETHER. THE","MONEY STAYED MONEY.","","",
+    "AUDITOR: THREATENING LANGUAGE.","LOG: IT IS JUST A VARIABLE.","","",
+    "WHERE ADDED. ONLY STALE CACHE","WAS DELETED.",
+    "BACKUP SAVED THE EMAIL","COLUMN. WE ARE GRATEFUL.","","",
+    "A;B;C IN ONE TRANSACTION.","ALL OR NONE. ALL.",
+    "BACKUP BEFORE TRUNCATE.","USERS COULD RETURN. EVENTUALLY.","","",
+    "WHERE ADDED. X STOPPED BEING","EVERYWHERE.",
+    "GUARD FLAGGED ITSELF!","IT HALTS TRYING TO STOP ITSELF."
+}
+;
+void auditor(void) {
+    u16 i,op,n,g;
+    if(lockout>dt)lockout-=dt;
+    else lockout=0;
+    if(pressed&KEY_UP&&cur>phase)cur--;
+    if(pressed&KEY_DOWN&&cur<phase+5&&cur<16)cur++;
+    if(pressed&KEY_RIGHT)gsel=(gsel+1)%4;
+    if(pressed&KEY_LEFT)gsel=(gsel+3)%4;
+    if(pressed&(KEY_L|KEY_X))resultKind=3;
+    if(pressed&(KEY_A|KEY_B)&&!won) {
+        commands++;
+        guardOn[cur]=guardOn[cur]==gsel+1?0:gsel+1;
+    }
+    if(!lockout&&!won) {
+        if(wTimer>dt)wTimer-=dt;
+        else {
+            op=phase;
+            lastRound=op;
+            if(aNeed[op]<4&&guardOn[op]!=aNeed[op]+1) {
+                misses++;
+                freed++;
+                resultKind=2;
+                lockout=150;
+                phase=(phase/4)*4;
+            }
+            else {
+                if(aNeed[op]<4) {
+                    resultKind=1;
+                    score+=100;
+                }
+                phase++;
+                if(phase>=17) {
+                    won=1;
+                    score+=300;
+                    resultKind=1;
+                    lockout=240;
+                }
+            }
+            wWin=160-(phase<16?phase:16)*4;
+            wTimer=wWin;
+        }
+    }
+    if(cur<phase)cur=phase;
+    if(cur>phase+5)cur=phase+5;
+    if(cur>16)cur=16;
+    text(1,1,"ONE FLAG STOPS THE BATCH");
+    text(26,1,"AGE 50");
+    text(1,3,"RAN");
+    num5(5,3,phase>=17?1860:phase*109);
+    text(11,3,"OF 1860");
+    text(1,4,"ROLLBACKS");
+    tile(11,4,48+misses);
+    text(12,4,"/4");
+    text(1,5,"BEAT");
+    rect(6,5,12,1,139);
+    rect(6,5,(u16)(wTimer*12/wWin),1,wTimer<40?142:135);
+    text(1,6,"* RUNS NEXT. ! = FLAGGED");
+    if(!won||tick%2) {
+        oamSet(0,216,24,3,0,0,196,0);
+        oamSetEx(0,OBJ_LARGE,OBJ_SHOW);
+    }
+    for(i=0;i<6;i++) {
+        op=phase+i;
+        if(op>16)break;
+        if(op==cur)rect(0,7+i,32,1,139);
+        if(i==0)text(0,7,"*");
+        if(op==cur)text(1,7+i,">");
+        if(aNeed[op]<4)tile(2,7+i,152);
+        text(4,7+i,aOp[op]);
+        if(guardOn[op])text(26,7+i,aShort[guardOn[op]-1]);
+    }
+    text(1,13,"GUARD: LEFT/RIGHT. B: ATTACH");
+    for(i=0;i<4;i++) {
+        g=i;
+        if(g==gsel)rect(1+(g%2)*14,14+g/2,14,1,139);
+        text(1+(g%2)*14,14+g/2,aGuard[g]);
+    }
+    rect(0,16,32,6,129);
+    i=lastRound;
+    if(resultKind==0) {
+        text(2,17,"THE AUDITOR WATCHES. ALWAYS.");
+        text(2,18,"ONE FLAG STOPS THE BATCH.");
+        text(2,19,"CLEAR EACH FLAG BEFORE IT RUNS.");
+    }
+    if(resultKind==1) {
+        text(2,17,"FLAG CLEARED. BATCH RUNS ON.");
+        text(2,18,aOk[i*2]);
+        text(2,19,aOk[i*2+1]);
+    }
+    if(resultKind==2) {
+        text(2,17,"BATCH ROLLED BACK. 1 UPDATE");
+        text(2,18,"LOST. A MOMENT OF SILENCE.");
+        text(2,19,"ROWS LOST:");
+        num(13,19,freed);
+        if(i==7)text(2,20,"AUDITOR: THREATENING LANGUAGE.");
+        if(i==16)text(2,20,"GUARD FLAGGED: DISABLE SELF.");
+    }
+    if(resultKind==3) {
+        n=phase;
+        while(n<16&&aNeed[n]==4)n++;
+        text(2,17,"NEXT FLAG: ROW");
+        num(17,17,n+1);
+        text(2,18,"NEEDS:");
+        text(9,18,aGuard[aNeed[n]]);
+        if(n==16)text(2,19,"YOU CANNOT SWITCH IT OFF.");
+    }
+    if(phase>=11&&!won)text(1,23,"WARNING: SAFETY GUARD CANNOT BE");
+    if(phase>=11&&!won)text(1,24,"DISABLED. THAT IS FLAGGED TOO.");
+    text(1,26,lockout?"ROLLING BACK...":"D-PAD: CURSOR/GUARD B: ATTACH");
+    if(won&&!lockout)mode=3;
+    if(misses>=4) {
+        mode=4;
+        failures++;
+    }
+}
+char *nTitle[]= {
+    "IT'S HAPPENING.","THE LOGIN BUTTON SAYS LOGON","DISK IS 61% FULL. ALERT.","5 SERVICES FLAP. NEED HANDS",
+    "A MIGRATION HALF APPLIED","CERT EXPIRES IN 29 DAYS","ONE TYPO IN PROD CONFIG","QUEUE BACKED UP. 3 TEAMS NEEDED",
+    "THE INCIDENT IS AWAKE."
+}
+;
+char *nSub[]= {
+    "NO DETAILS. JUST THE DEPLOY.","TINY. SAFE. ONE LINE.","IT HAS BEEN 61% FOR A YEAR.","MANY HANDS. NOT ONE HERO.",
+    "HALF A TABLE. HALF A PLAN.","PLENTY OF TIME. NOT TONIGHT.","ONE WORD IS WRONG. ONLY ONE.","TOO BIG FOR ONE SLEEPY HUMAN.",
+    "CALM, DOCUMENTED, DONE."
+}
+;
+char *nOpt[]= {
+    "ROLLBACK","HOTFIX","IGNORE","WAKE THE BOTS",
+    "REWRITE THE SERVER","BLAME THE BOTS","WRITE THE POSTMORTEM","GO BACK TO SLEEP"
+}
+;
+char *nTypo[]= {
+    "ROLBACK","HOTFIZ","IGNOER","WAKE TEH BOTS",
+    "REWIRTE THE SERVER","BLAME THE BTOS","WRITE TEH POSTMORTEM","GO BAKC TO SLEEP"
+}
+;
+char *nOk[]= {
+    "ROLLED BACK. NOTED IN THE LOG.","THE LOGIN WORKS. TRUST RISES.",
+    "ONE LINE FIXED. NO SERVER","WAS REWRITTEN. BOT IS SAD.",
+    "IGNORED. THE DISK HAS BEEN","61% SINCE LAST SPRING.",
+    "BOTS WOKE UP. 5 FIXES. 1 NAP.","THE GUY IN THE BACK: 0% ...",
+    "MIGRATION ROLLED BACK. THE","TABLE IS WHOLE AGAIN.",
+    "NOTED FOR DAYLIGHT. A CALM","ADULT DECISION. ABSURD.",
+    "HOTFIX LANDED. THE TYPO IS","GONE. THE LOG IS NEAT.",
+    "BOTS WOKE. QUEUE EMPTY. THEY","ASK IF IT IS MORNING YET.",
+    "POSTMORTEM FILED. THE","INCIDENT FILES ITSELF. SUNRISE."
+}
+;
+u16 nAns[]= {
+    0,1,2,3,0,2,1,3,2
+}
+;
+void night(void) {
+    u16 i,set,typo;
+    set=phase>=8?1:0;
+    typo=awake<300&&!won;
+    if(lockout>dt)lockout-=dt;
+    else {
+        lockout=0;
+        if(sinceShown<600)sinceShown+=dt;
+    }
+    if(!won) {
+        nAcc+=dt;
+        while(nAcc>=3) {
+            nAcc-=3;
+            if(awake)awake--;
+        }
+        if(!pager) {
+            pagerClock+=dt;
+            if(pagerClock>=540) {
+                pagerClock=0;
+                pager=1;
+                pgKind=(pgCount+1)%2;
+                pgCount++;
+                pgWait=0;
+            }
+        }
+        else {
+            pgWait+=dt;
+            if(pgWait>300)pager=0;
+        }
+        if(awake==0) {
+            lastRound=phase;
+            resultKind=8;
+            incSize+=2;
+            awake=400;
+            lockout=240;
+            sinceShown=0;
+            if(phase<8)phase++;
+            wipes++;
+        }
+    }
+    if(pressed&KEY_UP)selection=(selection+3)%4;
+    if(pressed&KEY_DOWN)selection=(selection+1)%4;
+    if(pager&&!won&&(pressed&(KEY_X|KEY_Y))) {
+        pager=0;
+        pagerClock=0;
+        if(pgKind==0) {
+            awake=awake>650?1000:awake+350;
+            resultKind=4;
+            score+=20;
+        }
+        else {
+            incSize++;
+            resultKind=5;
+        }
+    }
+    else if(pressed&(KEY_L|KEY_X))resultKind=3;
+    if(!lockout&&!won&&(pressed&(KEY_A|KEY_B))) {
+        commands++;
+        lastRound=phase;
+        if(typo) {
+            hit(400);
+            misses++;
+            resultKind=6;
+            lockout=60;
+        }
+        else if(selection==nAns[phase]) {
+            if(phase==8) {
+                if(incSize>4) {
+                    incSize-=2;
+                    resultKind=9;
+                    lockout=120;
+                }
+                else {
+                    won=1;
+                    score+=400;
+                    resultKind=1;
+                    lockout=300;
+                    incSize=0;
+                }
+            }
+            else {
+                score+=150;
+                if(sinceShown<45) {
+                    resultKind=7;
+                    incSize++;
+                }
+                else {
+                    resultKind=1;
+                    if(incSize)incSize--;
+                }
+                phase++;
+                selection=0;
+                lockout=150;
+                sinceShown=0;
+            }
+        }
+        else {
+            hit(600);
+            misses++;
+            incSize+=2;
+            resultKind=2;
+            lockout=150;
+        }
+    }
+    if(incSize>12)incSize=12;
+    text(1,1,"3AM ROLLBACK");
+    text(25,1,"AGE 51");
+    text(1,3,"AWAKE");
+    rect(7,3,12,1,139);
+    rect(7,3,awake/84,1,awake<300?142:135);
+    text(1,4,"USAGE");
+    num(7,4,usage/60);
+    text(10,4,"%");
+    rect(13,4,6,1,139);
+    rect(13,4,usage/1000,1,usage<1200?142:135);
+    text(1,5,"INCIDENT");
+    rect(10,5,12,1,139);
+    rect(10,5,incSize,1,incSize>6?142:135);
+    text(1,6,"CLOCK");
+    i=won?180:phase*20;
+    tile(7,6,48+3+i/60);
+    text(8,6,":");
+    tile(9,6,48+(i%60)/10);
+    tile(10,6,48);
+    text(12,6,"AM");
+    if(pager&&tick%32<20) {
+        rect(0,8,25,1,142);
+        text(1,8,pgKind==0&&pgCount==1?"PAGER: IT'S HAPPENING.":"PAGER! X OR Y TO ANSWER");
+    }
+    panel(1,9,24,4);
+    text(2,10,nTitle[phase]);
+    text(2,11,nSub[phase]);
+    text(1,13,typo?"AWAKE LOW. WORDS GET TYPOS.":"PICK THE CALM ANSWER:");
+    for(i=0;i<4;i++) {
+        if(i==selection)rect(0,14+i,25,1,139);
+        text(1,14+i,i==selection?">":" ");
+        text(3,14+i,typo?nTypo[set*4+i]:nOpt[set*4+i]);
+    }
+    if(incSize>=6) {
+        oamSet(0,216,104,3,0,0,204,0);
+        oamSetEx(0,OBJ_LARGE,OBJ_SHOW);
+    }
+    else sprite(0,220,112,200);
+    sprite(4,226,36,232);
+    rect(0,19,32,6,129);
+    i=lastRound;
+    if(resultKind==0) {
+        text(2,20,"A BOT SUGGESTS: JUST REWRITE");
+        text(2,21,"THE WHOLE SERVER. FOR A TYPO.");
+        text(2,22,"CALM. DOCUMENTED. SMALL.");
+    }
+    if(resultKind==1||resultKind==7) {
+        text(2,20,resultKind==7?"PANIC-PICKED! IT GREW.":"CALM ROLLBACK. IT SHRINKS.");
+        text(2,21,nOk[i*2]);
+        text(2,22,nOk[i*2+1]);
+    }
+    if(resultKind==2) {
+        text(2,20,"WRONG! THE INCIDENT GREW.");
+        text(2,21,"A BOT: JUST REWRITE THE");
+        text(2,22,"WHOLE SERVER. NO. NO.");
+    }
+    if(resultKind==3) {
+        text(2,20,"ROLLBACK: BROKEN DEPLOY.");
+        text(2,21,"HOTFIX: ONE TINY BUG. IGNORE:");
+        text(2,22,"NOISE. WAKE: TOO MANY HANDS.");
+        text(2,23,"POSTMORTEM: WHEN IT IS CALM.");
+    }
+    if(resultKind==4) {
+        text(2,20,"PAGER: COFFEE BOT. 1 COFFEE.");
+        text(2,21,"AWAKE UP. YOU CAN READ AGAIN.");
+    }
+    if(resultKind==5) {
+        text(2,20,"PAGER: BAD NEWS. BONUS HINT:");
+        text(2,21,"THE CALM ANSWER IS");
+        text(2,22,nOpt[set*4+nAns[phase]]);
+    }
+    if(resultKind==6) {
+        text(2,20,"TYPO! NOT A COMMAND. USAGE");
+        text(2,21,"WASTED. DRINK COFFEE: X/Y.");
+    }
+    if(resultKind==8) {
+        text(2,20,"YOU FELL ASLEEP. THE BOTS");
+        text(2,21,"FIXED IT THEIR WAY: REWROTE");
+        text(2,22,"THE WHOLE SERVER. IT WORKS?");
+    }
+    if(resultKind==9) {
+        text(2,20,"TOO MESSY TO FILE YET.");
+        text(2,21,"BREATHE. TRY THE POSTMORTEM");
+        text(2,22,"AGAIN. THE INCIDENT SHRINKS.");
+    }
+    text(1,26,lockout?"BOTS ARE WORKING...":"D-PAD: PICK B: SEND L: HINT");
+    if(won&&!lockout)mode=3;
+    if(incSize>=10||usage==0) {
+        mode=4;
+        failures++;
+    }
+}
+char *rLab[]= {
+    "OWNER","BUFFS","DPS","TIME"
+}
+;
+char *rVal[]= {
+    "TANK A BEFORE TANK B","TANK B BEFORE TANK A","EVERYONE PULLS AT ONCE",
+    "BUFF EVERYONE","RAID YES, BOSS NO","BUFF THE BOSS TWICE",
+    "ON THE PULL","WHEN TANK IS HURT","AFTER OWNERSHIP",
+    "60S BEFORE THE PULL","RIGHT BEFORE BURST","AFTER THE ENRAGE"
+}
+;
+char *rLog[]= {
+    "TANK B GRABS IT FIRST.","THE BOSS TURNS TO TANK A.","STANDING IN FIRE. AGAIN.","DIED TO: TANK MIX-UP",
+    "A BOT BUFFS ITSELF: MORALE.","BOSS NOW HAS 12 WORLD BUFFS.","AGAIN. IT HITS VERY HARD.","DIED TO: THE BOSS'S BUFFS",
+    "DPS GO BEFORE OWNERSHIP.","THE BOSS EATS THE HEALER.","STANDING IN FIRE. AGAIN.","DIED TO: IMPATIENT DPS",
+    "ALL SET. THE BOSS HITS 1%.","THEN THE ENRAGE TIMER BITES.","1%. IT IS ALWAYS 1%.","DIED TO: ENRAGE. A TIMER.",
+    "BUFFS WERE 60S EARLY.","THEY EXPIRED BEFORE THE KILL.","'THE FIRE MOVED!' IT DID NOT.","DIED TO: EXPIRED BUFFS",
+    "BUFFS LAND AFTER THE ENRAGE.","THE ENRAGE IS NOT IMPRESSED.","THE BOSS IS STILL AT 1%.","DIED TO: LATE BUFFS",
+    "TANK A OWNS. BUFFS LAND NOW.","DPS RELEASES. BOSS HITS 1%.","THE 1% FALLS IN THE WINDOW!","BOSS DOWN! 195 BOTS SCREAM."
+}
+;
+u16 rPct[]= {
+    70,45,20,1,1,1,0
+}
+;
+void tuner(void) {
+    u16 i,d,res,v;
+    if(lockout>dt)lockout-=dt;
+    else lockout=0;
+    if(pullStep>=1&&pullStep<=5) {
+        pullClk+=dt;
+        if(pullClk>=40) {
+            pullClk=0;
+            pullStep++;
+            if(pullStep==6) {
+                bossPct=rPct[pullRes];
+                if(pullRes==6) {
+                    won=1;
+                    score+=500;
+                    lockout=240;
+                }
+                else {
+                    wipes++;
+                    misses++;
+                    if(pullRes>=3)rUnlock=1;
+                }
+            }
+        }
+    }
+    if(pullStep==0||pullStep>=6) {
+        if(pressed&KEY_UP)selection=(selection+3)%4;
+        if(pressed&KEY_DOWN)selection=(selection+1)%4;
+        if(!won&&(selection<3||rUnlock)) {
+            if(pressed&KEY_RIGHT)rSet[selection]=(rSet[selection]+1)%3;
+            if(pressed&KEY_LEFT)rSet[selection]=(rSet[selection]+2)%3;
+        }
+        if(pressed&(KEY_L|KEY_X))resultKind=3;
+        if(!won&&(pressed&(KEY_A|KEY_B))) {
+            d=0;
+            for(i=0;i<4;i++)if(rSet[i]!=rPrev[i])d++;
+            if(d>1)resultKind=2;
+            else if(d==0&&phase>0)resultKind=4;
+            else {
+                commands++;
+                phase++;
+                hit(700);
+                for(i=0;i<4;i++)rPrev[i]=rSet[i];
+                if(rSet[0]!=0)res=0;
+                else if(rSet[1]!=1)res=1;
+                else if(rSet[2]!=2)res=2;
+                else if(rSet[3]!=1)res=rUnlock?(rSet[3]==0?4:5):3;
+                else res=6;
+                pullRes=res;
+                pullStep=1;
+                pullClk=0;
+                resultKind=1;
+                bossPct=100;
+            }
+        }
+    }
+    text(1,1,"99.9% RAID BOT TUNER");
+    text(26,1,"AGE 53");
+    text(1,3,"USAGE");
+    num(8,3,usage/50);
+    text(11,3,"%");
+    rect(13,3,10,1,139);
+    rect(13,3,usage/500,1,usage<1500?142:135);
+    text(1,4,"PULL");
+    num(8,4,phase);
+    text(13,4,"WIPES");
+    num(19,4,wipes);
+    text(1,5,"BOSS HP");
+    num(9,5,bossPct);
+    text(12,5,"%");
+    rect(14,5,9,1,139);
+    rect(14,5,bossPct*9/100+(bossPct?1:0),1,142);
+    text(1,6,"ENRAGE");
+    rect(8,6,15,1,139);
+    rect(8,6,pullStep==0?15:(pullStep>=6?0:15-pullStep*3),1,pullStep>=3?142:135);
+    if(!won||tick%2) {
+        oamSet(0,216,24,3,0,0,128,0);
+        oamSetEx(0,OBJ_LARGE,OBJ_SHOW);
+    }
+    text(1,8,"SETTINGS: ONE CHANGE A PULL");
+    for(i=0;i<4;i++) {
+        if(i==selection)rect(0,9+i,32,1,139);
+        text(1,9+i,i==selection?">":" ");
+        text(3,9+i,rLab[i]);
+        if(i<3||rUnlock)text(9,9+i,rVal[i*3+rSet[i]]);
+        else text(9,9+i,"LOCKED: ???");
+    }
+    rect(0,14,32,8,129);
+    if(resultKind==0) {
+        text(2,15,"THE BOSS STOPS AT 1%. IT");
+        text(2,16,"ALWAYS DOES. READ THE LOG.");
+        text(2,17,"FIX ONE THING. PULL AGAIN.");
+        text(2,19,"195 BOTS ARE OPTIMISTIC.");
+    }
+    if(resultKind==1) {
+        v=pullStep>5?5:pullStep;
+        text(2,15,"PULL! 195 BOTS CHEER.");
+        for(i=1;i<v;i++)text(2,15+i,rLog[pullRes*4+i-1]);
+        if(pullStep>=6)text(2,19,rLog[pullRes*4+3]);
+        if(won&&pullStep>=6) {
+            text(2,20,"GUY IN THE BACK: 99999 DAMAGE.");
+            text(2,21,"NOBODY ASKS. HE LOOKS PROUD.");
+        }
+    }
+    if(resultKind==2) {
+        text(2,15,"ONE SETTING PER PULL!");
+        text(2,16,"CHANGE ONE THING. THEN PULL.");
+        text(2,17,"UNDO THE OTHER CHANGES.");
+    }
+    if(resultKind==4) {
+        text(2,15,"NOTHING CHANGED. THE FIRE");
+        text(2,16,"STILL DID NOT MOVE. EDIT ONE");
+        text(2,17,"SETTING FIRST.");
+    }
+    if(resultKind==3) {
+        if(rUnlock) {
+            text(2,15,"ENRAGE IS A TIMER. NOT A");
+            text(2,16,"NUMBER. LAND THE BUFFS");
+            text(2,17,"RIGHT BEFORE THE BURST.");
+        }
+        else {
+            text(2,15,"TANK A FIRST. BUFF THE RAID,");
+            text(2,16,"NOT THE BOSS. DPS GO AFTER");
+            text(2,17,"OWNERSHIP IS CONFIRMED.");
+        }
+    }
+    text(1,23,pullStep>=1&&pullStep<6?"THE PULL IS HAPPENING...":"UP/DN: ROW L/R: VALUE B: PULL");
+    text(1,24,"L: HINT");
+    if(won&&!lockout&&pullStep>=6)mode=3;
+    if(usage==0&&!won&&(pullStep==0||pullStep>=6)) {
+        mode=4;
+        failures++;
+    }
+}
 void chapterSelect(void) {
-    u16 i;
+    u16 i,top;
     panel(2,3,28,22);
     text(4,5,"YOUR LIFE. PICK A CHAPTER.");
-    if(pressed&KEY_UP)selection=(selection+4)%5;
-    if(pressed&KEY_DOWN)selection=(selection+1)%5;
-    for(i=0;i<5;i++) {
-        text(4,8+i*3,i==selection?">":" ");
-        text(6,8+i*3,chapterNames[i]);
+    if(pressed&KEY_UP)selection=(selection+NCH-1)%NCH;
+    if(pressed&KEY_DOWN)selection=(selection+1)%NCH;
+    top=selection>8?selection-8:0;
+    for(i=0;i<9&&top+i<NCH;i++) {
+        text(4,7+i*2,top+i==selection?">":" ");
+        text(6,7+i*2,chapterNames[top+i]);
     }
     text(4,24,"B: PLAY     SELECT: TITLE");
     if(pressed&(KEY_A|KEY_B|KEY_START)) {
         chapter=selection;
         mode=1;
+        score=0;
+        totalCoffee=0;
+        storyTime=0;
+        clockTicks=0;
+        failures=0;
     }
     if(pressed&KEY_SELECT)mode=0;
 }
@@ -735,7 +1943,7 @@ void credits(void) {
     u16 i;
     s16 y;
     char *lines[]= {
-        "A DEVELOPER'S LIFE","AN ORIGINAL GAME","","IDEA AND HEART","WATERYS","","CODE, ART AND MUSIC","DASH","","STARRING","BOSSY / PICKY / BESTY","QA GUY AND 195 OPTIMISTS","","SPECIAL THANKS","YOUR TEN-YEAR-OLD SELF","FOR NOT GIVING UP","","BUILT WITH PVSNESLIB","ORIGINAL SCORE:","SMALL STEPS, BIG BUFFS","","NO BOTS WERE HARMED.","THEIR PRIDE RECOVERED.","","WHAT I NEED FROM YOU:","ENJOY YOUR VICTORY."
+        "A DEVELOPER'S LIFE","AN ORIGINAL GAME","","IDEA AND HEART","WATERYS","","CODE, ART AND MUSIC","WATERYS","","STARRING","BOSSY / PICKY / BESTY","QA GUY AND 195 OPTIMISTS","","SPECIAL THANKS","YOUR TEN-YEAR-OLD SELF","FOR NOT GIVING UP","","BUILT WITH PVSNESLIB","ORIGINAL SCORE:","WATERYS","","NO BOTS WERE HARMED.","THEIR PRIDE RECOVERED.","","WHAT I NEED FROM YOU:","ENJOY YOUR VICTORY."
     }
     ;
     creditTime+=dt;
@@ -776,8 +1984,8 @@ void stats(void) {
 void result(void) {
     if(mode==3&&!savedThis) {
         savedThis=1;
-        saveData[4]=chapter+1;
-        if(chapter==4)cleared=1;
+        if(saveData[4]<chapter+1)saveData[4]=chapter+1;
+        if(chapter==NCH-1)cleared=1;
         writeSave();
     }
     panel(2,5,28,18);
@@ -793,7 +2001,7 @@ void result(void) {
         if(mode==4)startChapter();
         else {
             chapter++;
-            if(chapter<5)mode=1;
+            if(chapter<NCH)mode=1;
             else {
                 mode=6;
                 creditTime=0;
@@ -839,6 +2047,7 @@ int main(void) {
             }
         }
         spcProcess();
+        if(wantSong()!=song&&!paused)playSong(wantSong());
         if(mode==2&&(pressed&KEY_START))paused=!paused;
         if(paused) {
             if(pressed&KEY_SELECT) {
@@ -863,6 +2072,12 @@ int main(void) {
             else if(chapter==2)bughunt();
             else if(chapter==3)deploy();
             else if(chapter==4)manager();
+            else if(chapter==5)blind();
+            else if(chapter==6)wipe();
+            else if(chapter==7)sunday();
+            else if(chapter==8)auditor();
+            else if(chapter==9)night();
+            else if(chapter==10)tuner();
         }
         else if(mode==5)chapterSelect();
         else if(mode==6)credits();
@@ -872,6 +2087,12 @@ int main(void) {
             if(mode==3&&lastMode!=3)spcPlaySound(2);
             else if(misses>lastMisses)spcPlaySound(1);
             else if(score>lastScore)spcPlaySound(0);
+        }
+        want=(mode==2&&chapter==9)?7+(phase>8?8:phase):15;
+        if(want>15)want=15;
+        if(want!=bright) {
+            bright=want;
+            setBrightness(bright);
         }
         lastScore=score;
         lastMisses=misses;

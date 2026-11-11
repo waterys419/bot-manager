@@ -1,3 +1,4 @@
 toolchain/
 build/
 *.sym
+__pycache__/

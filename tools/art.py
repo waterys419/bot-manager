@@ -121,6 +121,30 @@ def main():
  for dy in (12,18,24):s.rect(x+2,y+dy,6,2,5);s.rect(x+24,y+dy,6,2,5)
  s.rect(x+9,y+11,6,4,13);s.rect(x+18,y+11,6,4,13);s.rect(x+12,y+12,2,3,0);s.rect(x+19,y+12,2,3,0)
  s.rect(x+11,y+21,10,2,4)
+ # Hourglass (RATE-LIMITER) and Auditor eye, 32x32 each, atlas rows y=96.
+ x=0;y=96
+ s.rect(x+4,y+1,24,3,4);s.rect(x+4,y+28,24,3,4);s.rect(x+6,y+4,20,2,13);s.rect(x+6,y+26,20,2,13)
+ for k in range(10):
+  w=18-k*2;s.rect(x+16-w//2,y+6+k,w,1,13);s.rect(x+16-w//2,y+25-k,w,1,13)
+  if k>=1:s.rect(x+16-(w-4)//2,y+6+k,w-4,1,4)
+ s.rect(x+15,y+15,2,2,13);s.rect(x+11,y+22,10,3,4);s.rect(x+4,y+4,2,24,9);s.rect(x+26,y+4,2,24,9)
+ x=32;y=96
+ s.rect(x+2,y+10,28,12,13);s.rect(x+6,y+7,20,3,13);s.rect(x+6,y+22,20,3,13)
+ s.rect(x+10,y+9,12,14,14);s.rect(x+13,y+12,6,8,0);s.rect(x+14,y+13,2,2,13)
+ s.rect(x+2,y+9,28,2,11);s.rect(x+2,y+21,28,2,11)
+ for k in (5,10,16,21,26):s.rect(x+k,y+3,2,5,11);s.rect(x+k,y+25,2,5,11)
+ # THE INCIDENT: small shadow blob 16x16 (64,96), big one 32x32 (96,96), sun 16x16 (64,112).
+ x=64;y=96
+ s.rect(x+3,y+4,10,9,11);s.rect(x+2,y+7,12,5,11);s.rect(x+5,y+6,2,2,14);s.rect(x+9,y+6,2,2,14);s.rect(x+4,y+13,2,2,11);s.rect(x+9,y+13,3,2,11)
+ x=96;y=96
+ s.rect(x+6,y+6,20,20,11);s.rect(x+3,y+12,26,12,11);s.rect(x+10,y+12,4,4,14);s.rect(x+18,y+12,4,4,14);s.rect(x+11,y+13,2,2,0);s.rect(x+19,y+13,2,2,0)
+ s.rect(x+10,y+20,12,2,12)
+ for k in (4,11,18,25):s.rect(x+k,y+26,3,5,11)
+ s.rect(x+2,y+2,3,6,11);s.rect(x+27,y+4,3,6,11)
+ x=64;y=112
+ s.rect(x+4,y+4,8,8,4);s.rect(x+3,y+5,10,6,4);s.rect(x+5,y+6,2,2,13)
+ for k in (0,7,14):s.rect(x+k,y+7,2,2,4)
+ for k in (0,7,14):s.rect(x+7,y+k,2,2,4)
  s.save('sprites')
  print('Original PNG atlases converted to 4bpp tiles.')
 if __name__=='__main__':main()
