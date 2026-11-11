@@ -4,13 +4,7 @@ An original homebrew game for the Super Famicom / SNES. You start as a kid typin
 
 **[▶ Play in your browser](https://waterys419.github.io/bot-manager/)**, or download `bot-manager.sfc` and play it in an emulator or on real hardware.
 
-## What's new in v1.1
-- **Six new chapters (6–11)**, all in the spirit of the AI Bot Manager finale. The level ideas were brainstormed by an AI agent (Qwen) from Waterys' real life running a game server with a crew of AI agents, and Waterys picked "all of them".
-- **Chapter select is always unlocked**, so you can start at any chapter.
-- **A real soundtrack**: seven original songs with melody, bass, chords and drums replace the old single loop. A different song plays for each group of chapters, the final boss and the credits.
-- **ROM size** grew from 256 KB to 512 KB to hold the music (still a plain LoROM cart, no special chips).
-
-**How it was updated:** like v1.0, it was made by AI agents with Waterys directing. Qwen came up with the level ideas and composed the music; a Claude agent ("the guy in the back") built the chapters, chapter select and music into the game and fixed the songs so they play correctly on the sound chip; Claude coordinated. Every chapter is checked by an automated playthrough in Snes9x (controller input only), and the full run also passes on bsnes.
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each version.
 
 ## Chapters
 1. **Hello World**: type the falling code before it hits the floor.
